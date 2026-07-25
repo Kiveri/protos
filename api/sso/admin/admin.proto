@@ -1,0 +1,144 @@
+syntax = "proto3";
+
+package sso.admin.v1;
+
+import "sso/auth/auth.proto";
+
+option go_package = "github.com/Kiveri/protos/gen/sso/admin/v1;ssoadminv1";
+
+// =============================================================================
+// AuthAdminService — admin API для управления пользователями
+// Доступ: только admin (access_token с role=ADMIN в metadata или internal API key)
+// =============================================================================
+
+service AuthAdminService {
+  // Создать пользователя с явной ролью (в т.ч. ADMIN).
+  // Использовать вместо публичного Auth.Register, когда нужна роль ADMIN.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+
+  // Список пользователей с фильтрами и пагинацией.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // Получить пользователя по ID.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+
+  // Изменить роль пользователя.
+  rpc UpdateUserRole(UpdateUserRoleRequest) returns (UpdateUserRoleResponse);
+
+  // Деактивировать пользователя (soft delete, status → INACTIVE).
+  rpc DeactivateUser(DeactivateUserRequest) returns (DeactivateUserResponse);
+
+  // Активировать пользователя (status → ACTIVE).
+  rpc ActivateUser(ActivateUserRequest) returns (ActivateUserResponse);
+
+  // Сброс пароля администратором.
+  rpc ResetUserPassword(ResetUserPasswordRequest) returns (ResetUserPasswordResponse);
+}
+
+// =============================================================================
+// CreateUser
+// gRPC codes:
+//   OK, InvalidArgument, AlreadyExists, PermissionDenied, Internal
+// =============================================================================
+
+message CreateUserRequest {
+  string login = 1; // required, unique
+  string password = 2; // required, min length проверяется в usecase
+  sso.auth.v1.UserRole role = 3; // required: USER_ROLE_ADMIN или USER_ROLE_USER
+}
+
+message CreateUserResponse {
+  sso.auth.v1.User user = 1; // созданный пользователь, status=ACTIVE
+}
+
+// =============================================================================
+// ListUsers
+// gRPC codes:
+//   OK, InvalidArgument, PermissionDenied, Internal
+// =============================================================================
+
+message ListUsersRequest {
+  sso.auth.v1.UserRole role = 1; // optional filter, UNSPECIFIED = all
+  sso.auth.v1.UserStatus status = 2; // optional filter, UNSPECIFIED = all
+  int32 page_size = 3; // default: 50, max: 100
+  string page_token = 4; // opaque token для следующей страницы
+}
+
+message ListUsersResponse {
+  repeated sso.auth.v1.User users = 1;
+  string next_page_token = 2; // пустой, если страниц больше нет
+}
+
+// =============================================================================
+// GetUser
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, PermissionDenied, Internal
+// =============================================================================
+
+message GetUserRequest {
+  string user_id = 1; // required
+}
+
+message GetUserResponse {
+  sso.auth.v1.User user = 1;
+}
+
+// =============================================================================
+// UpdateUserRole
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, FailedPrecondition, PermissionDenied, Internal
+// FailedPrecondition: попытка снять роль ADMIN у последнего admin
+// =============================================================================
+
+message UpdateUserRoleRequest {
+  string user_id = 1; // required
+  sso.auth.v1.UserRole role = 2; // required: USER_ROLE_ADMIN или USER_ROLE_USER
+}
+
+message UpdateUserRoleResponse {
+  sso.auth.v1.User user = 1;
+}
+
+// =============================================================================
+// DeactivateUser
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, FailedPrecondition, PermissionDenied, Internal
+// FailedPrecondition: попытка деактивировать последнего admin
+// Side effects: Login/ValidateToken/RefreshToken для user_id перестают работать
+// =============================================================================
+
+message DeactivateUserRequest {
+  string user_id = 1; // required
+}
+
+message DeactivateUserResponse {
+  sso.auth.v1.User user = 1; // status = USER_STATUS_INACTIVE
+}
+
+// =============================================================================
+// ActivateUser
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, PermissionDenied, Internal
+// =============================================================================
+
+message ActivateUserRequest {
+  string user_id = 1; // required
+}
+
+message ActivateUserResponse {
+  sso.auth.v1.User user = 1; // status = USER_STATUS_ACTIVE
+}
+
+// =============================================================================
+// ResetUserPassword
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, PermissionDenied, Internal
+// Side effects (рекомендуется): revoke всех refresh tokens пользователя
+// =============================================================================
+
+message ResetUserPasswordRequest {
+  string user_id = 1; // required
+  string new_password = 2; // required, min length проверяется в usecase
+}
+
+message ResetUserPasswordResponse {}

@@ -1,0 +1,12 @@
+version: v2
+modules:
+  - path: api
+lint:
+  use:
+    - STANDARD
+  except:
+    # api/sso/auth/auth.proto — package sso.auth.v1, dir api/sso/auth/
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  use:
+    - FILE

@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package sso.auth.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/Kiveri/protos/gen/sso/auth/v1;ssoauthv1";
+
+// =============================================================================
+// AuthService — публичный API для пользователей и consuming-сервисов
+// =============================================================================
+
+service AuthService {
+  // Self-service регистрация.
+  // Важно: всегда создаёт пользователя с role=USER_ROLE_USER.
+  // Admin создаётся только через sso.admin.AuthAdminService.CreateUser.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Аутентификация пользователя в конкретном приложении (app_id).
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // Проверка access token (для gateway / других сервисов).
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+
+  // Профиль текущего пользователя по access token.
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+
+  // Обновление access token по refresh token (rotation).
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+
+  // Завершение сессии: revoke refresh token.
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // Смена пароля авторизованным пользователем.
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+
+  // Проверка admin-роли текущего пользователя по access token.
+  rpc IsAdmin(IsAdminRequest) returns (IsAdminResponse);
+}
+
+// =============================================================================
+// Shared types
+// =============================================================================
+
+enum UserRole {
+  USER_ROLE_UNSPECIFIED = 0;
+  USER_ROLE_ADMIN = 1;
+  USER_ROLE_USER = 2;
+}
+
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ACTIVE = 1;
+  USER_STATUS_INACTIVE = 2;
+}
+
+message User {
+  string user_id = 1;
+  string login = 2;
+  UserRole role = 3;
+  UserStatus status = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// =============================================================================
+// Register
+// gRPC codes:
+//   OK, InvalidArgument, AlreadyExists, Internal
+// =============================================================================
+
+message RegisterRequest {
+  string login = 1; // required, unique
+  string password = 2; // required, min length проверяется в usecase
+}
+
+message RegisterResponse {
+  User user = 1; // role всегда USER, status всегда ACTIVE
+}
+
+// =============================================================================
+// Login
+// gRPC codes:
+//   OK, InvalidArgument, Unauthenticated, FailedPrecondition, Internal
+// FailedPrecondition: app INACTIVE
+// Unauthenticated: неверные credentials / user INACTIVE
+// =============================================================================
+
+message LoginRequest {
+  string login = 1; // required
+  string password = 2; // required
+  string app_id = 3; // required, app must be ACTIVE
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 access_expires_at = 3; // unix
+  int64 refresh_expires_at = 4; // unix
+}
+
+// =============================================================================
+// ValidateToken
+// gRPC codes:
+//   OK, InvalidArgument, Unauthenticated, PermissionDenied, Internal
+// PermissionDenied: token для другого app_id (если app_id передан в request)
+// =============================================================================
+
+message ValidateTokenRequest {
+  string access_token = 1; // required
+  string app_id = 2; // optional strict check
+}
+
+message ValidateTokenResponse {
+  string user_id = 1;
+  string login = 2;
+  string application_id = 3;
+  UserRole role = 4;
+  UserStatus status = 5;
+  int64 expires_at = 6; // unix
+}
+
+// =============================================================================
+// GetMe
+// gRPC codes:
+//   OK, InvalidArgument, Unauthenticated, NotFound, Internal
+// =============================================================================
+
+message GetMeRequest {
+  string access_token = 1; // required
+}
+
+message GetMeResponse {
+  User user = 1;
+}
+
+// =============================================================================
+// RefreshToken
+// gRPC codes:
+//   OK, InvalidArgument, Unauthenticated, FailedPrecondition, Internal
+// FailedPrecondition: app INACTIVE
+// =============================================================================
+
+message RefreshTokenRequest {
+  string refresh_token = 1; // required
+  string app_id = 2; // required
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2; // новый refresh (rotation)
+  int64 access_expires_at = 3;
+  int64 refresh_expires_at = 4;
+}
+
+// =============================================================================
+// Logout
+// gRPC codes:
+//   OK, InvalidArgument, Internal
+// =============================================================================
+
+message LogoutRequest {
+  string refresh_token = 1; // required
+}
+
+message LogoutResponse {}
+
+// =============================================================================
+// ChangePassword
+// gRPC codes:
+//   OK, InvalidArgument, Unauthenticated, Internal
+// =============================================================================
+
+message ChangePasswordRequest {
+  string access_token = 1; // required
+  string old_password = 2; // required
+  string new_password = 3; // required
+}
+
+message ChangePasswordResponse {}
+
+// =============================================================================
+// IsAdmin
+// gRPC codes:
+//   OK, InvalidArgument, Unauthenticated, Internal
+// =============================================================================
+
+message IsAdminRequest {
+  string access_token = 1; // required
+}
+
+message IsAdminResponse {
+  bool is_admin = 1;
+}

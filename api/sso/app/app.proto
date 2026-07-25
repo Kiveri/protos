@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package sso.app.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/Kiveri/protos/gen/sso/app/v1;ssoappv1";
+
+// =============================================================================
+// ApplicationService — admin API для управления приложениями (service clients auth)
+// Доступ: только admin (access_token с role=ADMIN в metadata или internal API key)
+// =============================================================================
+
+service ApplicationService {
+  // Создать приложение. secret генерируется на сервере и возвращается один раз.
+  rpc CreateApplication(CreateApplicationRequest) returns (CreateApplicationResponse);
+
+  // Список приложений без secret.
+  rpc ListApplications(ListApplicationsRequest) returns (ListApplicationsResponse);
+
+  // Получить приложение по ID (без secret).
+  rpc GetApplication(GetApplicationRequest) returns (GetApplicationResponse);
+
+  // Сгенерировать новый secret. Старый перестаёт валидировать JWT.
+  rpc RotateApplicationSecret(RotateApplicationSecretRequest) returns (RotateApplicationSecretResponse);
+
+  // Деактивировать приложение (soft delete, status → INACTIVE).
+  rpc DeleteApplication(DeleteApplicationRequest) returns (DeleteApplicationResponse);
+
+  // Активировать приложение (status → ACTIVE).
+  rpc ActivateApplication(ActivateApplicationRequest) returns (ActivateApplicationResponse);
+}
+
+// =============================================================================
+// Shared enums & messages
+// =============================================================================
+
+enum ApplicationStatus {
+  APPLICATION_STATUS_UNSPECIFIED = 0;
+  APPLICATION_STATUS_ACTIVE = 1; // ApplicationStatusActive
+  APPLICATION_STATUS_INACTIVE = 2; // ApplicationStatusInactive
+}
+
+// Публичное представление приложения (без secret).
+message Application {
+  string app_id = 1;
+  string name = 2;
+  ApplicationStatus status = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+// Secret показывается только при create / rotate.
+message ApplicationWithSecret {
+  string app_id = 1;
+  string name = 2;
+  string secret = 3; // только в CreateApplication и RotateApplicationSecret
+  ApplicationStatus status = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// =============================================================================
+// CreateApplication
+// gRPC codes:
+//   OK, InvalidArgument, AlreadyExists, PermissionDenied, Internal
+// AlreadyExists: duplicate name
+// =============================================================================
+
+message CreateApplicationRequest {
+  string name = 1; // required, unique; secret не передаётся — генерируется server-side
+}
+
+message CreateApplicationResponse {
+  ApplicationWithSecret application = 1; // status = APPLICATION_STATUS_ACTIVE
+}
+
+// =============================================================================
+// ListApplications
+// gRPC codes:
+//   OK, InvalidArgument, PermissionDenied, Internal
+// =============================================================================
+
+message ListApplicationsRequest {
+  ApplicationStatus status = 1; // optional filter, UNSPECIFIED = all
+  int32 page_size = 2; // default: 50, max: 100
+  string page_token = 3; // opaque token для следующей страницы
+}
+
+message ListApplicationsResponse {
+  repeated Application applications = 1;
+  string next_page_token = 2; // пустой, если страниц больше нет
+}
+
+// =============================================================================
+// GetApplication
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, PermissionDenied, Internal
+// =============================================================================
+
+message GetApplicationRequest {
+  string app_id = 1; // required
+}
+
+message GetApplicationResponse {
+  Application application = 1; // без secret
+}
+
+// =============================================================================
+// RotateApplicationSecret
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, FailedPrecondition, PermissionDenied, Internal
+// FailedPrecondition: app INACTIVE
+// Side effects: все ранее выданные JWT для app_id становятся невалидными
+// =============================================================================
+
+message RotateApplicationSecretRequest {
+  string app_id = 1; // required
+}
+
+message RotateApplicationSecretResponse {
+  ApplicationWithSecret application = 1; // новый secret, show once
+}
+
+// =============================================================================
+// DeleteApplication (deactivate)
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, PermissionDenied, Internal
+// Side effects: Login/RefreshToken для app_id перестают работать
+// =============================================================================
+
+message DeleteApplicationRequest {
+  string app_id = 1; // required
+}
+
+message DeleteApplicationResponse {
+  Application application = 1; // status = APPLICATION_STATUS_INACTIVE, без secret
+}
+
+// =============================================================================
+// ActivateApplication
+// gRPC codes:
+//   OK, InvalidArgument, NotFound, PermissionDenied, Internal
+// =============================================================================
+
+message ActivateApplicationRequest {
+  string app_id = 1; // required
+}
+
+message ActivateApplicationResponse {
+  Application application = 1; // status = APPLICATION_STATUS_ACTIVE, без secret
+}
