@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          version: '35.1'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install protoc plugins
+        run: make tools
+
+      - name: Buf lint
+        run: make proto-lint
+
+      - name: Buf breaking (PRs only)
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE="origin/${{ github.base_ref }}"
+          git fetch origin "${{ github.base_ref }}"
+          if ! git ls-tree -r --name-only "${BASE}" -- 'api/' | grep -q '\.proto$'; then
+            echo "Skipping buf breaking: no .proto files on ${BASE} (initial bootstrap)"
+            exit 0
+          fi
+          buf breaking --against ".git#commit=$(git rev-parse "${BASE}")"
+
+      - name: Verify generated code is up to date
+        run: make proto-check
+
+      - name: Build
+        run: go build ./...
